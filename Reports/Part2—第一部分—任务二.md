@@ -138,7 +138,9 @@ torch.nn.ConvTranspose2d(in_channels,out_channels,kernel_size,stride=1,padding=0
 
 输出图像边长公式：
 
-H_out_ = (H_in - 1) * stride - 2 * padding + output_padding + 1
+```python
+H_out = (H_in - 1) * stride - 2 * padding + output_padding + 1
+```
 
 具体操作：
 

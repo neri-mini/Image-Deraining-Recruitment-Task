@@ -11,13 +11,16 @@ from dataset import DerainDataset
 from utils import calculate_metrics, save_checkpoint, load_checkpoint, save_some_examples
 from models.baseline_net import BaselineNet
 from models.unet import UNet
+from models.derainnet import DerainNet
+from models.mymodel import Mymodel
 from losses.perceptual_loss import PerceptualLoss
+from losses.easy_contrastive_loss import EasyContrastiveLoss,InfoNCEContrastiveLoss
 
 
 def get_args():
     parser = argparse.ArgumentParser(description="Deraining Model Training")
     parser.add_argument("--data_dir", type=str, required=True, help="Path to the dataset")
-    parser.add_argument("--model", type=str, default="baseline", choices=["baseline", "unet"], help="Model to use")
+    parser.add_argument("--model", type=str, default="baseline", choices=["baseline", "unet","derainnet","mymodel"], help="Model to use")
     parser.add_argument("--mode", type=str, default="train", choices=["train", "test"], help="Train or test mode")
     parser.add_argument("--checkpoint", type=str, default=None, help="Path to checkpoint for testing")
 
@@ -26,13 +29,16 @@ def get_args():
     parser.add_argument("--lr", type=float, default=1e-4, help="Learning rate")
 
     parser.add_argument("--use_perceptual_loss", action="store_true", help="Use perceptual loss")
+    parser.add_argument("--use_contrastive_loss", action="store_true", help="Use easy contrastive loss")
     parser.add_argument("--lambda_pixel", type=float, default=1.0, help="Weight for pixel loss")
     parser.add_argument("--lambda_perceptual", type=float, default=0.1, help="Weight for perceptual loss")
-
+    parser.add_argument("--lambda_contrastive", type=float, default=0.1, help="Weight for easy contrastive loss")
+    parser.add_argument("--loss", type=str, default="L1", choices=["L1", "L2"], help="L1 loss or L2 loss")
+    parser.add_argument("--contrastive_loss",type=str,default="InfoNCE", choices=["InfoNCE","Easy"],help="EasyContrastiveLoss or InfoNCEContrastiveLoss")
     return parser.parse_args()
 
 
-def train_one_epoch(loader, model, optimizer, pixel_loss_fn, perceptual_loss_fn, args, device):
+def train_one_epoch(loader, model, optimizer, pixel_loss_fn, perceptual_loss_fn,contrastive_loss_fn,args, device):
     loop = tqdm(loader, leave=True)
     model.train()
 
@@ -41,12 +47,16 @@ def train_one_epoch(loader, model, optimizer, pixel_loss_fn, perceptual_loss_fn,
         derained = model(rainy)
         pixel_loss = args.lambda_pixel * pixel_loss_fn(derained, clean)
         total_loss = pixel_loss
+        stats = {"pixel_loss":pixel_loss.item()}
         if args.use_perceptual_loss:
             p_loss = args.lambda_perceptual * perceptual_loss_fn(derained, clean)
             total_loss += p_loss
-            loop.set_postfix(pixel_loss=pixel_loss.item(), perceptual_loss=p_loss.item())
-        else:
-            loop.set_postfix(pixel_loss=pixel_loss.item())
+            stats["perceptual_loss"] = p_loss.item()
+        if args.use_contrastive_loss:
+            c_loss = args.lambda_contrastive * contrastive_loss_fn(derained, rainy, clean)
+            total_loss += c_loss
+            stats["contrastive_loss"] = c_loss.item()
+        loop.set_postfix(stats)        
         optimizer.zero_grad()
         total_loss.backward()
         optimizer.step()
@@ -83,12 +93,27 @@ def main():
         model = BaselineNet().to(device)
     elif args.model == "unet":
         model = UNet().to(device)
+    elif args.model == "derainnet":
+        model = DerainNet().to(device)
+    elif args.model == "mymodel":
+        model = Mymodel().to(device)    
 
 
     lpips_fn = lpips.LPIPS(net='alex').to(device)
 
-    pixel_loss_fn = nn.L1Loss()
+    if args.loss == "L1":
+        pixel_loss_fn = nn.L1Loss()
+    elif args.loss == "L2":
+        pixel_loss_fn = nn.MSELoss()
+
     perceptual_loss_fn = PerceptualLoss().to(device) if args.use_perceptual_loss else None
+    if args.use_contrastive_loss:
+        if args.contrastive_loss == "InfoNCE":
+            contrastive_loss_fn = InfoNCEContrastiveLoss().to(device)
+        elif args.contrastive_loss == "Easy":
+            contrastive_loss_fn = EasyContrastiveLoss().to(device)
+    else:
+        contrastive_loss_fn = None            
     optimizer = optim.Adam(model.parameters(), lr=args.lr)
 
     if args.mode == "train":
@@ -100,7 +125,7 @@ def main():
         best_psnr = 0.0
         for epoch in range(args.epochs):
             print(f"\n--- Epoch {epoch + 1}/{args.epochs} ---")
-            train_one_epoch(train_loader, model, optimizer, pixel_loss_fn, perceptual_loss_fn, args, device)
+            train_one_epoch(train_loader, model, optimizer, pixel_loss_fn, perceptual_loss_fn,contrastive_loss_fn, args, device)
 
             current_psnr = evaluate(test_loader, model, device, lpips_fn)
 

@@ -1,0 +1,12 @@
+data/
+checkpoints/
+evaluation_images/
+savemodel_onnx/
+compare_image/
+
+.vscode/
+__pycache__/
+*.py[cod]
+*$py.class
+.Python
+

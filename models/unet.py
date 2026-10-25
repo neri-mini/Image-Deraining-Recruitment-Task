@@ -6,10 +6,10 @@ class Block(nn.Module):
     def __init__(self, in_channels, out_channels):
         super(Block, self).__init__()
         self.conv = nn.Sequential(
-            nn.Conv2d(in_channels, out_channels, 3, 1, 1, bias=False),
+            nn.Conv2d(in_channels, out_channels, kernel_size=3, stride=1, padding=1, bias=False),
             nn.InstanceNorm2d(out_channels), 
             nn.ReLU(inplace=True),
-            nn.Conv2d(out_channels, out_channels, 3, 1, 1, bias=False),
+            nn.Conv2d(out_channels, out_channels, kernel_size=3, stride=1, padding=1, bias=False),
             nn.InstanceNorm2d(out_channels), 
             nn.ReLU(inplace=True),
         )
